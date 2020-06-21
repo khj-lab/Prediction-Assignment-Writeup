@@ -1,0 +1,149 @@
+---
+title: "Prediction-Assignment-Writeup"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+
+## Loading Data and Processiong
+
+Loading package.
+```{r, echo=TRUE}
+library(knitr)
+library(caret)
+library(rpart)
+library(randomForest)
+library(e1071)
+library(gbm)
+```
+
+Loading dataset.
+```{r, echo=TRUE}
+TrainUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+TestUrl  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+TrainFile<-"pml-traininig.csv"
+TestFile<-"pml-testing.csv"
+
+# download the datasets
+if(!file.exists(TrainFile))
+{
+  download.file(TrainUrl,destfile = TrainFile)
+}
+training <- read.csv(TrainFile)
+
+if(!file.exists(TestFile))
+{
+  download.file(TestUrl,destfile = TestFile)
+}
+testing  <- read.csv(TestFile)
+
+```
+
+create a partition using caret with the training dataset on 70,30 ratio
+```{r, echo=TRUE}
+inTrain  <- createDataPartition(training$classe, p=0.7, list=FALSE)
+
+TrainSet <- training[inTrain, ]
+
+TestSet  <- training[-inTrain, ]
+
+print(dim(TrainSet))
+
+print(dim(TestSet))
+```
+
+Look summary of TrainSet
+```{r, echo=TRUE}
+summary(TrainSet)
+```
+
+Remove variables with Nearly Zero Variance.
+```{r, echo=TRUE}
+NZV <- nearZeroVar(TrainSet)
+TrainSet <- TrainSet[, -NZV]
+TestSet  <- TestSet[, -NZV]
+dim(TestSet)
+```
+
+clean NA value.
+```{r, echo=TRUE}
+AllNA    <- sapply(TrainSet, function(x) mean(is.na(x))) > 0.95
+TrainSet <- TrainSet[, AllNA==FALSE]
+TestSet  <- TestSet[, AllNA==FALSE]
+```
+
+Delete unused columns.
+```{r, echo=TRUE}
+TrainSet <-TrainSet[,-c(1:7)]
+TestSet <-TestSet[,-c(1:7)]
+
+print(dim(TrainSet))
+print(dim(TestSet))
+```
+
+Plot Frequency of classe.
+```{r, echo=TRUE}
+plot(TrainSet$classe, col="black", main="Frequency of classe", xlab="classe", ylab="Frequency")
+```
+
+## Predction model
+
+First, I built Random Forest Model.
+```{r, echo=TRUE}
+set.seed(0)
+
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modFitRandForest <- train(classe ~ ., data=TrainSet, method="rf",
+                          trControl=controlRF)
+modFitRandForest$finalModel
+```
+
+prediction on Test dataset.
+```{r, echo=TRUE}
+predictRandForest <- predict(modFitRandForest, newdata=TestSet)
+confMatRandForest <- confusionMatrix(predictRandForest, TestSet$classe)
+confMatRandForest
+```
+
+plot results with matrix.
+```{r, echo=TRUE}
+plot(confMatRandForest$table, col = confMatRandForest$byClass, 
+     main = paste("Random Forest - Accuracy =",
+                  round(confMatRandForest$overall['Accuracy'], 4)))
+```
+
+Second, I built Generalized Boosted Model (GBM)
+
+```{r, echo=TRUE}
+set.seed(0)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modFitGBM  <- train(classe ~ ., data=TrainSet, method = "gbm",
+                    trControl = controlGBM, verbose = FALSE)
+```
+
+prediction on Test dataset.
+```{r, echo=TRUE}
+predictGBM <- predict(modFitGBM, newdata=TestSet)
+confMatGBM <- confusionMatrix(predictGBM, TestSet$classe)
+confMatGBM
+```
+
+plot results with matrix.
+```{r, echo=TRUE}
+plot(confMatGBM$table, col = confMatGBM$byClass, 
+     main = paste("GBM - Accuracy =", round(confMatGBM$overall['Accuracy'], 4)))
+```
+
+## Conclusion
+Compairing results of Random Forests and GBM, Random Forests' result is better. So I chose this model to predict testing.
+
+```{r, echo=TRUE}
+predictTEST <- predict(modFitRandForest, newdata=testing)
+predictTEST
+```
